@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { v4 } from "uuid";
 import MathExpressionEditor, { type MathExpressionEditorHandle } from "./MathExpressionEditor";
 
 export interface MathExpressionListHandle {
@@ -12,7 +13,6 @@ interface Expression {
 	evaluated_result?: string | null;
 	evaluation_error?: string | null;
 	has_unit_from_evaluation?: boolean;
-	is_deletable?: boolean;
 }
 
 // Placeholder for the external evaluation function
@@ -37,7 +37,7 @@ const __evaluate__ = async (expressions: { id: string; latex: string; unit_latex
 				let unit_latex = exp.unit_latex;
 
 				// Simple dummy evaluation logic
-				if (exp.latex.includes("error")) {
+				if ((exp.latex ?? "").includes("error")) {
 					evaluation_error = "Syntax Error";
 				} else if (exp.latex === "") {
 					evaluated_result = null;
@@ -52,7 +52,7 @@ const __evaluate__ = async (expressions: { id: string; latex: string; unit_latex
 					has_unit_from_evaluation = true;
 					unit_latex = "\\text{cm}";
 				} else {
-					evaluated_result = "result of " + exp.latex;
+					evaluated_result = exp.latex;
 				}
 
 				return {
@@ -69,7 +69,7 @@ const __evaluate__ = async (expressions: { id: string; latex: string; unit_latex
 };
 
 const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props, ref) => {
-	const [expressions, set_expressions] = useState<Expression[]>(() => [{ id: "1", latex: "", unit_latex: "", is_deletable: false }]);
+	const [expressions, set_expressions] = useState<Expression[]>(() => [{ id: v4(), latex: "", unit_latex: "" }]);
 	const [focused_index, set_focused_index] = useState(0);
 	const editor_refs = useRef<(MathExpressionEditorHandle | null)[]>([]);
 	const [refresh_eval_trigger, set_refresh_eval_trigger] = useState(0);
@@ -108,9 +108,8 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 			});
 		};
 
-		const timeout_id = setTimeout(evaluate_all_expressions, 500); // Debounce evaluation
-		return () => clearTimeout(timeout_id);
-	}, [expressions, refresh_eval_trigger]);
+		evaluate_all_expressions();
+	}, [JSON.stringify(expressions.map((exp) => ({ id: exp.id, latex: exp.latex, unit_latex: exp.unit_latex }))), refresh_eval_trigger]);
 
 	const handle_latex_change = useCallback((id: string, new_latex: string) => {
 		set_expressions((prev_expressions) => {
@@ -136,13 +135,13 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 		set_expressions((prev_expressions) => {
 			const index = prev_expressions.findIndex((exp) => exp.id === id);
 			if (index !== -1) {
+				if (!prev_expressions[index].latex.trim()) return prev_expressions;
 				const new_expressions = [...prev_expressions];
-				const new_id = (parseInt(prev_expressions[prev_expressions.length - 1].id) + 1).toString(); // Simple ID generation
+				const new_id = v4(); // Simple ID generation
 				new_expressions.splice(index + 1, 0, {
 					id: new_id,
 					latex: "",
 					unit_latex: "",
-					is_deletable: true,
 				});
 				set_focused_index(index + 1);
 				return new_expressions;
@@ -177,41 +176,26 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 		[expressions]
 	);
 
-	const handle_delete_expression = useCallback(
-		(id: string) => {
-			set_expressions((prev_expressions) => {
-				const index = prev_expressions.findIndex((exp) => exp.id === id);
-				if (index !== -1 && prev_expressions[index].is_deletable) {
-					const new_expressions = [...prev_expressions];
-					new_expressions.splice(index, 1);
-					// Adjust focus after deletion
-					if (index === focused_index) {
-						set_focused_index(Math.max(0, index - 1));
-					} else if (index < focused_index) {
-						set_focused_index(focused_index - 1);
-					}
-					return new_expressions;
-				}
-				return prev_expressions;
-			});
-		},
-		[focused_index]
-	);
-
 	const handle_backspace_pressed = useCallback(
 		(id: string) => {
 			set_expressions((prev_expressions) => {
 				const index = prev_expressions.findIndex((exp) => exp.id === id);
-				if (index !== -1 && prev_expressions[index].is_deletable) {
-					const new_expressions = [...prev_expressions];
-					new_expressions.splice(index, 1);
-					// Adjust focus after deletion
-					if (index === focused_index) {
-						set_focused_index(Math.max(0, index - 1));
-					} else if (index < focused_index) {
-						set_focused_index(focused_index - 1);
+				if (index !== -1) {
+					if (prev_expressions.length === 1 && prev_expressions[0].id === id) {
+						// If it's the last expression, clear its content instead of deleting it
+						return prev_expressions.map((exp) => (exp.id === id ? { ...exp, latex: "", unit_latex: "" } : exp));
+					} else {
+						// Otherwise, delete the expression
+						const new_expressions = [...prev_expressions];
+						new_expressions.splice(index, 1);
+						// Adjust focus after deletion
+						if (index === focused_index) {
+							set_focused_index(Math.max(0, index - 1));
+						} else if (index < focused_index) {
+							set_focused_index(focused_index - 1);
+						}
+						return new_expressions;
 					}
-					return new_expressions;
 				}
 				return prev_expressions;
 			});
@@ -226,6 +210,61 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 		}
 	}, [focused_index]);
 
+	const handle_cursor_left_out = useCallback(
+		(id: string) => {
+			set_focused_index((prev_index) => {
+				const index = expressions.findIndex((exp) => exp.id === id);
+				if (index > 0) {
+					return index - 1;
+				}
+				return prev_index;
+			});
+		},
+		[expressions]
+	);
+
+	const handle_cursor_right_out = useCallback(
+		(id: string) => {
+			const current_expression = expressions.find((exp) => exp.id === id);
+			const index = expressions.findIndex((exp) => exp.id === id);
+
+			if (current_expression && (current_expression.initial_unit_latex !== "" || current_expression.has_unit_from_evaluation)) {
+				// If current expression has a unit field, focus it
+				editor_refs.current[index]?.focus_unit_field();
+			} else {
+				// Otherwise, move to the next expression
+				set_focused_index((prev_index) => {
+					if (index < expressions.length - 1) {
+						return index + 1;
+					}
+					return prev_index;
+				});
+			}
+		},
+		[expressions]
+	);
+
+	const handle_cursor_left_out_unit = useCallback(
+		(id: string) => {
+			const index = expressions.findIndex((exp) => exp.id === id);
+			editor_refs.current[index]?.focus(); // Focus the main field of the current editor
+		},
+		[expressions]
+	);
+
+	const handle_cursor_right_out_unit = useCallback(
+		(id: string) => {
+			set_focused_index((prev_index) => {
+				const index = expressions.findIndex((exp) => exp.id === id);
+				if (index < expressions.length - 1) {
+					return index + 1;
+				}
+				return prev_index;
+			});
+		},
+		[expressions]
+	);
+
 	return (
 		<div>
 			{expressions.map((exp, index) => (
@@ -238,14 +277,16 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 					evaluated_result={exp.evaluated_result}
 					evaluation_error={exp.evaluation_error}
 					has_unit_from_evaluation={exp.has_unit_from_evaluation}
-					is_deletable={exp.is_deletable}
 					on_latex_change={(new_latex) => handle_latex_change(exp.id, new_latex)}
 					on_unit_latex_change={(new_unit_latex) => handle_unit_latex_change(exp.id, new_unit_latex)}
 					on_enter_pressed={() => handle_enter_pressed(exp.id)}
 					on_arrow_up={() => handle_arrow_up(exp.id)}
 					on_arrow_down={() => handle_arrow_down(exp.id)}
-					on_delete_pressed={() => handle_delete_expression(exp.id)}
 					on_backspace_pressed={() => handle_backspace_pressed(exp.id)}
+					on_cursor_left_out={() => handle_cursor_left_out(exp.id)}
+					on_cursor_right_out={() => handle_cursor_right_out(exp.id)}
+					on_cursor_left_out_unit={() => handle_cursor_left_out_unit(exp.id)}
+					on_cursor_right_out_unit={() => handle_cursor_right_out_unit(exp.id)}
 				/>
 			))}
 		</div>

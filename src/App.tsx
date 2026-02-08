@@ -1,7 +1,7 @@
-import "mathquill/build/mathquill.css";
 import { addStyles } from "react-mathquill";
 import "./App.css";
 import MathExpressionList from "./components/MathExpressionList";
+
 addStyles();
 
 function App() {

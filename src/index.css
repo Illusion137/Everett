@@ -103,3 +103,10 @@ button:focus-visible {
 	vertical-align: middle;
 }
 
+
+/* Override MathQuill's default focused class to not apply its own outline */
+.mq-editable-field.mq-focused {
+	box-shadow: none !important;
+	border-color: transparent !important;
+}
+
