@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { v4 } from "uuid";
 import { useEvaluator } from "../hooks/use_evaluator";
-import { array_empty, unit_to_latex, type UnitVec } from "../utils";
+import { array_empty, unit_to_latex, type UnitDimension } from "../utils";
 import MathExpressionEditor, { type MathExpressionEditorHandle } from "./MathExpressionEditor";
 
 export interface MathExpressionListHandle {
@@ -83,8 +83,8 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 							evaluated_result: result.value,
 							evaluation_error: undefined,
 							unit_latex: exp.unit_latex,
-							evalulated_unit_latex: array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitVec),
-							forced_unit_latex: exp.unit_latex || array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitVec),
+							evalulated_unit_latex: array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitDimension),
+							forced_unit_latex: exp.unit_latex || array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitDimension),
 						};
 					} else {
 						return {

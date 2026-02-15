@@ -1,7 +1,7 @@
 {
 	"name": "everett",
 	"private": true,
-	"version": "0.0.0",
+	"version": "1.0.0",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -11,16 +11,29 @@
 		"tauri": "tauri"
 	},
 	"dependencies": {
-		"@milkdown/core": "^7.18.0",
-		"@milkdown/plugin-math": "^7.5.9",
-		"@milkdown/preset-commonmark": "^7.18.0",
-		"@milkdown/react": "^7.18.0",
-		"@milkdown/theme-nord": "^7.18.0",
+		"@milkdown/core": "7.18.0",
+		"@milkdown/react": "7.18.0",
+		"@milkdown/preset-commonmark": "7.18.0",
+		"@milkdown/preset-gfm": "7.18.0",
+		"@milkdown/plugin-math": "7.18.0",
+		"@milkdown/plugin-diagram": "7.18.0",
+		"@milkdown/plugin-emoji": "7.18.0",
+		"@milkdown/plugin-indent": "7.18.0",
+		"@milkdown/plugin-listener": "7.18.0",
+		"@milkdown/plugin-prism": "7.18.0",
+		"@milkdown/theme-nord": "7.18.0",
 		"@tailwindcss/vite": "^4.1.18",
+		"@tauri-apps/api": "^2.10.1",
+		"@tauri-apps/plugin-opener": "^2",
+		"@tiptap/extension-mathematics": "^3.19.0",
+		"@tiptap/extension-placeholder": "^3.19.0",
+		"@tiptap/markdown": "^3.19.0",
+		"@tiptap/react": "^3.19.0",
+		"@tiptap/starter-kit": "^3.19.0",
 		"fuse.js": "^7.1.0",
 		"jquery": "^4.0.0",
 		"katex": "^0.16.28",
-		"mathlive": "^0.108.2",
+		"mathlive": "^0.108.3",
 		"mathquill": "^0.10.1-a",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
@@ -30,13 +43,12 @@
 		"rehype-katex": "^7.0.1",
 		"remark-math": "^6.0.0",
 		"tailwindcss": "^4.1.18",
-		"uuid": "^13.0.0",
-		"@tauri-apps/api": "^2",
-		"@tauri-apps/plugin-opener": "^2"
+		"uuid": "^13.0.0"
 	},
 	"devDependencies": {
 		"@eslint/js": "^9.39.1",
 		"@originjs/vite-plugin-federation": "^1.4.1",
+		"@tauri-apps/cli": "^2",
 		"@types/node": "^24.10.1",
 		"@types/react": "^19.2.5",
 		"@types/react-dom": "^19.2.3",
@@ -49,7 +61,6 @@
 		"typescript": "~5.9.3",
 		"typescript-eslint": "^8.46.4",
 		"vite": "^6.0.0",
-		"vite-plugin-terminal": "^1.4.0",
-		"@tauri-apps/cli": "^2"
+		"vite-plugin-terminal": "^1.4.0"
 	}
 }
