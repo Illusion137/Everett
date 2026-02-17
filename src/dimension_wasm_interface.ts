@@ -3,6 +3,8 @@ export interface EvalResult {
     success: boolean;
     value?: number;
     unit?: number[];
+    unit_latex?: string;
+    value_scientific?: string;
     error?: string;
 }
 
@@ -10,20 +12,37 @@ export interface BatchResult {
     results: EvalResult[];
 }
 
+export interface Expression {
+    value_expr: string;
+    unit_expr: string;
+}
+
+export interface FormulaResult {
+    name: string;
+    latex: string;
+    category: string;
+}
+
 export interface WasmModule {
     _dv_init(): boolean;
     _dv_destroy(): void;
     _dv_is_initialized(): boolean;
-    _dv_set_constant(name_ptr: number, expression_ptr: number, unit_expression_ptr: number): boolean;
+    _dv_set_constant(name_ptr: number, value_expr_ptr: number, unit_expr_ptr: number): boolean;
     _dv_remove_constant(name_ptr: number): boolean;
     _dv_clear_constants(): void;
     _dv_get_constant_count(): number;
-    _dv_eval(expr_ptr: number): number;
-    _dv_eval_batch(exprs_ptr: number, count: number): number;
+    _dv_eval(value_expr_ptr: number, unit_expr_ptr: number): number;
+    _dv_eval_batch(value_exprs_ptr: number, unit_exprs_ptr: number, count: number): number;
     _dv_free_batch_result(batch_ptr: number): void;
+    _dv_get_available_formulas(target_unit_ptr: number): number;
+    _dv_free_formula_list(list_ptr: number): void;
     _dv_get_variable(name_ptr: number, out_value_ptr: number): boolean;
     _dv_clear_variables(): void;
     _dv_get_variable_count(): number;
+    _dv_get_last_formula_results(): number;
+    _dv_unit_latex_to_unit(unit_latex_ptr: number, out_unit_ptr: number): void;
+    _dv_unit_to_latex(unit_ptr: number): number;
+    _dv_value_to_scientific(value: number): number;
     _dv_free(ptr: number): void;
     _dv_version(): number;
     _malloc(size: number): number;
@@ -51,9 +70,6 @@ export class DimensionalEvaluator {
         }
     }
 
-    /**
-     * Clean up the evaluator and free resources
-     */
     destroy(): void {
         if (!this.is_destroyed) {
             this.module._dv_destroy();
@@ -61,9 +77,6 @@ export class DimensionalEvaluator {
         }
     }
 
-    /**
-     * Check if the evaluator is still active
-     */
     is_initialized(): boolean {
         return !this.is_destroyed && this.module._dv_is_initialized();
     }
@@ -72,29 +85,18 @@ export class DimensionalEvaluator {
     // Constants Management
     // ========================================================================
 
-    /**
-     * Set a constant value that can be used in expressions
-     * @param name - The name of the constant (e.g., 'pi', 'e', 'c')
-     * @param value - The numeric value
-     * @returns true if successful
-     */
-    set_constant(name: string, expression: string, unit_expression: string): boolean {
+    set_constant(name: string, value_expr: string, unit_expr: string): boolean {
         this._check_initialized();
         const name_ptr = this._alloc_string(name);
-        const expression_ptr = this._alloc_string(expression);
-        const unit_expression_ptr = this._alloc_string(unit_expression);
-        const result = this.module._dv_set_constant(name_ptr, expression_ptr, unit_expression_ptr);
+        const value_expr_ptr = this._alloc_string(value_expr);
+        const unit_expr_ptr = this._alloc_string(unit_expr);
+        const result = this.module._dv_set_constant(name_ptr, value_expr_ptr, unit_expr_ptr);
         this.module._dv_free(name_ptr);
-        this.module._dv_free(expression_ptr);
-        this.module._dv_free(unit_expression_ptr);
+        this.module._dv_free(value_expr_ptr);
+        this.module._dv_free(unit_expr_ptr);
         return result;
     }
 
-    /**
-     * Remove a constant
-     * @param name - The name of the constant to remove
-     * @returns true if the constant existed and was removed
-     */
     remove_constant(name: string): boolean {
         this._check_initialized();
         const name_ptr = this._alloc_string(name);
@@ -103,17 +105,11 @@ export class DimensionalEvaluator {
         return result;
     }
 
-    /**
-     * Clear all constants
-     */
     clear_constants(): void {
         this._check_initialized();
         this.module._dv_clear_constants();
     }
 
-    /**
-     * Get the number of defined constants
-     */
     get_constant_count(): number {
         this._check_initialized();
         return this.module._dv_get_constant_count();
@@ -123,152 +119,106 @@ export class DimensionalEvaluator {
     // Expression Evaluation
     // ========================================================================
 
-    /**
-     * Evaluate a single expression
-     * @param expression - The mathematical expression to evaluate
-     * @returns Result object with success flag, value, unit array, or error message
-     * 
-     * @example
-     * ```typescript
-     * const result = evaluator.eval('2 + 2');
-     * if (result.success) {
-     *     console.log(result.value); // 4
-     *     console.log(result.unit);  // Unit dimension array
-     * } else {
-     *     console.error(result.error);
-     * }
-     * ```
-     */
-    eval(expression: string): EvalResult {
+    eval(value_expr: string, unit_expr: string = ""): EvalResult {
         this._check_initialized();
-        const expr_ptr = this._alloc_string(expression);
-        const result_ptr = this.module._dv_eval(expr_ptr);
+        const value_expr_ptr = this._alloc_string(value_expr);
+        const unit_expr_ptr = this._alloc_string(unit_expr);
+        const result_ptr = this.module._dv_eval(value_expr_ptr, unit_expr_ptr);
 
-        // Read result struct: struct { double value; int8_t unit[7]; bool success; char error[256]; }
-        // Layout:
-        // - value: 8 bytes (double) at offset 0
-        // - unit: 7 bytes (int8_t[7]) at offset 8
-        // - success: 1 byte (bool) at offset 15
-        // - error: 256 bytes (char[256]) at offset 16
+        // struct dv_result layout (WASM):
+        //   0: long double value (8 bytes)
+        //   8: int8_t unit[7] (7 bytes)
+        //  15: bool success (1 byte)
+        //  16: char error[256]
+        // 272: char unit_latex[256]
+        // 528: char value_scientific[256]
 
         const value = this.module.HEAPF64[result_ptr / 8];
 
-        // Read the unit array (7 int8_t values)
         const unit: number[] = [];
         for (let i = 0; i < 7; i++) {
             unit.push(this.module.HEAP8[result_ptr + 8 + i]);
         }
 
         const success = this.module.HEAPU8[result_ptr + 15] !== 0;
-        const error_ptr = result_ptr + 16;
 
         let result: EvalResult;
         if (success) {
-            result = { success: true, value, unit };
+            const unit_latex = this._read_fixed_string(result_ptr + 272, 256);
+            const value_scientific = this._read_fixed_string(result_ptr + 528, 256);
+            result = { success: true, value, unit, unit_latex, value_scientific };
         } else {
-            const error_bytes = this.module.HEAPU8.subarray(error_ptr, error_ptr + 256);
-            const null_index = error_bytes.indexOf(0);
-            const error = this.text_decoder.decode(error_bytes.subarray(0, null_index));
+            const error = this._read_fixed_string(result_ptr + 16, 256);
             result = { success: false, error };
         }
 
-        this.module._dv_free(expr_ptr);
+        this.module._dv_free(value_expr_ptr);
+        this.module._dv_free(unit_expr_ptr);
 
         return result;
     }
 
-    /**
-     * Evaluate multiple expressions in a batch
-     * @param expressions - Array of mathematical expressions
-     * @returns Array of result objects
-     * 
-     * @example
-     * ```typescript
-     * const results = evaluator.eval_batch([
-     *     'x = 5!',
-     *     '2^2',
-     *     'x + 4'
-     * ]);
-     * results.forEach((r, i) => {
-     *     if (r.success) {
-     *         console.log(`Expression ${i}: ${r.value}`);
-     *     } else {
-     *         console.error(`Expression ${i}: ${r.error}`);
-     *     }
-     * });
-     * ```
-     */
-    /**
-     * Evaluate multiple expressions in a batch
-     * @param expressions - Array of mathematical expressions
-     * @returns Array of result objects
-     * 
-     * @example
-     * ```typescript
-     * const results = evaluator.eval_batch([
-     *     'x = 5!',
-     *     '2^2',
-     *     'x + 4'
-     * ]);
-     * results.forEach((r, i) => {
-     *     if (r.success) {
-     *         console.log(`Expression ${i}: ${r.value}`);
-     *         console.log(`Unit ${i}: ${r.unit}`);
-     *     } else {
-     *         console.error(`Expression ${i}: ${r.error}`);
-     *     }
-     * });
-     * ```
-     */
-    eval_batch(expressions: string[]): EvalResult[] {
+    eval_batch(expressions: Expression[]): EvalResult[] {
         this._check_initialized();
 
         if (expressions.length === 0) {
             return [];
         }
 
-        // Allocate array of string pointers
-        const ptr_size = 4; // Assuming 32-bit pointers in WASM
-        const array_ptr = this.module._malloc(expressions.length * ptr_size);
+        const count = expressions.length;
+        const ptr_size = 4;
+        const value_array_ptr = this.module._malloc(count * ptr_size);
+        const unit_array_ptr = this.module._malloc(count * ptr_size);
         const string_ptrs: number[] = [];
 
         try {
-            // Allocate each string
-            for (let i = 0; i < expressions.length; i++) {
-                const str_ptr = this._alloc_string(expressions[i]);
-                string_ptrs.push(str_ptr);
-                this.module.HEAPU32[array_ptr / 4 + i] = str_ptr;
+            for (let i = 0; i < count; i++) {
+                const v_ptr = this._alloc_string(expressions[i].value_expr);
+                const u_ptr = this._alloc_string(expressions[i].unit_expr);
+                string_ptrs.push(v_ptr, u_ptr);
+                this.module.HEAPU32[value_array_ptr / 4 + i] = v_ptr;
+                this.module.HEAPU32[unit_array_ptr / 4 + i] = u_ptr;
             }
 
-            // Call batch evaluation
-            const batch_ptr = this.module._dv_eval_batch(array_ptr, expressions.length);
+            const batch_ptr = this.module._dv_eval_batch(value_array_ptr, unit_array_ptr, count);
 
             if (batch_ptr === 0) {
                 throw new Error('Batch evaluation failed');
             }
 
-            // Read batch result struct:
-            // struct { double* values; int8_t** units; bool* successes; char** errors; int count; }
+            // struct dv_batch_result layout (WASM, 32-bit pointers):
+            //  0: long double* values
+            //  4: int8_t** units
+            //  8: bool* successes
+            // 12: char** errors
+            // 16: char** unit_latexes
+            // 20: char** value_scientifics
+            // 24: int count
             const values_ptr = this.module.HEAPU32[batch_ptr / 4];
             const units_ptr = this.module.HEAPU32[batch_ptr / 4 + 1];
             const successes_ptr = this.module.HEAPU32[batch_ptr / 4 + 2];
             const errors_ptr = this.module.HEAPU32[batch_ptr / 4 + 3];
-            const count = this.module.HEAP32[batch_ptr / 4 + 4];
+            const unit_latexes_ptr = this.module.HEAPU32[batch_ptr / 4 + 4];
+            const value_scientifics_ptr = this.module.HEAPU32[batch_ptr / 4 + 5];
+            const result_count = this.module.HEAP32[batch_ptr / 4 + 6];
 
             const results: EvalResult[] = [];
-            for (let i = 0; i < count; i++) {
+            for (let i = 0; i < result_count; i++) {
                 const value = this.module.HEAPF64[values_ptr / 8 + i];
                 const success = this.module.HEAPU8[successes_ptr + i] !== 0;
 
-                // Read unit array for this expression
-                const unit_array_ptr = this.module.HEAPU32[units_ptr / 4 + i];
+                const unit_arr_ptr = this.module.HEAPU32[units_ptr / 4 + i];
                 const unit: number[] = [];
                 for (let j = 0; j < 7; j++) {
-                    unit.push(this.module.HEAP8[unit_array_ptr + j]);
+                    unit.push(this.module.HEAP8[unit_arr_ptr + j]);
                 }
 
                 if (success) {
-                    results.push({ success: true, value, unit });
+                    const latex_str_ptr = this.module.HEAPU32[unit_latexes_ptr / 4 + i];
+                    const sci_str_ptr = this.module.HEAPU32[value_scientifics_ptr / 4 + i];
+                    const unit_latex = this._read_string(latex_str_ptr);
+                    const value_scientific = this._read_string(sci_str_ptr);
+                    results.push({ success: true, value, unit, unit_latex, value_scientific });
                 } else {
                     const error_str_ptr = this.module.HEAPU32[errors_ptr / 4 + i];
                     const error = this._read_string(error_str_ptr);
@@ -276,38 +226,151 @@ export class DimensionalEvaluator {
                 }
             }
 
-            // Cleanup batch result
             this.module._dv_free_batch_result(batch_ptr);
 
             return results;
         } finally {
-            // Cleanup string allocations
             string_ptrs.forEach(ptr => this.module._dv_free(ptr));
-            this.module._dv_free(array_ptr);
+            this.module._dv_free(value_array_ptr);
+            this.module._dv_free(unit_array_ptr);
         }
     }
 
+    // ========================================================================
+    // Formula Search
+    // ========================================================================
+
+    get_available_formulas(target_unit: number[]): FormulaResult[] {
+        this._check_initialized();
+
+        const unit_ptr = this.module._malloc(7);
+        for (let i = 0; i < 7; i++) {
+            this.module.HEAP8[unit_ptr + i] = target_unit[i] ?? 0;
+        }
+
+        const list_ptr = this.module._dv_get_available_formulas(unit_ptr);
+        this.module._dv_free(unit_ptr);
+
+        if (list_ptr === 0) {
+            return [];
+        }
+
+        // struct dv_formula_list layout:
+        //  0: char** names
+        //  4: char** latexes
+        //  8: char** categories
+        // 12: int count
+        const names_ptr = this.module.HEAPU32[list_ptr / 4];
+        const latexes_ptr = this.module.HEAPU32[list_ptr / 4 + 1];
+        const categories_ptr = this.module.HEAPU32[list_ptr / 4 + 2];
+        const count = this.module.HEAP32[list_ptr / 4 + 3];
+
+        const formulas: FormulaResult[] = [];
+        for (let i = 0; i < count; i++) {
+            const name = this._read_string(this.module.HEAPU32[names_ptr / 4 + i]);
+            const latex = this._read_string(this.module.HEAPU32[latexes_ptr / 4 + i]);
+            const category = this._read_string(this.module.HEAPU32[categories_ptr / 4 + i]);
+            formulas.push({ name, latex, category });
+        }
+
+        this.module._dv_free_formula_list(list_ptr);
+
+        return formulas;
+    }
+
+    // ========================================================================
+    // Last Formula Results
+    // ========================================================================
+
+    get_last_formula_results(): FormulaResult[] {
+        this._check_initialized();
+
+        const list_ptr = this.module._dv_get_last_formula_results();
+
+        if (list_ptr === 0) {
+            return [];
+        }
+
+        // Same layout as dv_formula_list
+        const names_ptr = this.module.HEAPU32[list_ptr / 4];
+        const latexes_ptr = this.module.HEAPU32[list_ptr / 4 + 1];
+        const categories_ptr = this.module.HEAPU32[list_ptr / 4 + 2];
+        const count = this.module.HEAP32[list_ptr / 4 + 3];
+
+        const formulas: FormulaResult[] = [];
+        for (let i = 0; i < count; i++) {
+            const name = this._read_string(this.module.HEAPU32[names_ptr / 4 + i]);
+            const latex = this._read_string(this.module.HEAPU32[latexes_ptr / 4 + i]);
+            const category = this._read_string(this.module.HEAPU32[categories_ptr / 4 + i]);
+            formulas.push({ name, latex, category });
+        }
+
+        this.module._dv_free_formula_list(list_ptr);
+
+        return formulas;
+    }
+
+    // ========================================================================
+    // Value Utilities
+    // ========================================================================
+
+    unit_latex_to_unit(unit_latex: string): number[] {
+        this._check_initialized();
+        const latex_ptr = this._alloc_string(unit_latex);
+        const out_ptr = this.module._malloc(7);
+
+        try {
+            this.module._dv_unit_latex_to_unit(latex_ptr, out_ptr);
+            const unit: number[] = [];
+            for (let i = 0; i < 7; i++) {
+                unit.push(this.module.HEAP8[out_ptr + i]);
+            }
+            return unit;
+        } finally {
+            this.module._dv_free(latex_ptr);
+            this.module._dv_free(out_ptr);
+        }
+    }
+
+    unit_to_latex(unit: number[]): string {
+        this._check_initialized();
+        const unit_ptr = this.module._malloc(7);
+        for (let i = 0; i < 7; i++) {
+            this.module.HEAP8[unit_ptr + i] = unit[i] ?? 0;
+        }
+
+        const result_ptr = this.module._dv_unit_to_latex(unit_ptr);
+        this.module._dv_free(unit_ptr);
+
+        if (result_ptr === 0) {
+            return '';
+        }
+
+        const result = this._read_string(result_ptr);
+        this.module._dv_free(result_ptr);
+        return result;
+    }
+
+    value_to_scientific(value: number): string {
+        const result_ptr = this.module._dv_value_to_scientific(value);
+
+        if (result_ptr === 0) {
+            return '';
+        }
+
+        const result = this._read_string(result_ptr);
+        this.module._dv_free(result_ptr);
+        return result;
+    }
 
     // ========================================================================
     // Variables Management
     // ========================================================================
 
-    /**
-     * Get the value of a variable that was evaluated in an expression
-     * @param name - The variable name
-     * @returns The value if it exists, null otherwise
-     * 
-     * @example
-     * ```typescript
-     * evaluator.eval('x = 42');
-     * const x = evaluator.get_variable('x');
-     * console.log(x); // 42
-     * ```
-     */
     get_variable(name: string): number | null {
         this._check_initialized();
         const name_ptr = this._alloc_string(name);
-        const value_ptr = this.module._malloc(8); // double = 8 bytes
+        const value_ptr = this.module._malloc(8);
 
         try {
             const success = this.module._dv_get_variable(name_ptr, value_ptr);
@@ -323,17 +386,11 @@ export class DimensionalEvaluator {
         }
     }
 
-    /**
-     * Clear all evaluated variables
-     */
     clear_variables(): void {
         this._check_initialized();
         this.module._dv_clear_variables();
     }
 
-    /**
-     * Get the number of evaluated variables
-     */
     get_variable_count(): number {
         this._check_initialized();
         return this.module._dv_get_variable_count();
@@ -343,17 +400,11 @@ export class DimensionalEvaluator {
     // Utility Methods
     // ========================================================================
 
-    /**
-     * Get the version of the evaluator
-     */
     get_version(): string {
         const version_ptr = this.module._dv_version();
         return this._read_string(version_ptr);
     }
 
-    /**
-     * Reset the evaluator state (clear all constants and variables)
-     */
     reset(): void {
         this.clear_constants();
         this.clear_variables();
@@ -387,5 +438,15 @@ export class DimensionalEvaluator {
             offset++;
         }
         return this.text_decoder.decode(new Uint8Array(bytes));
+    }
+
+    private _read_fixed_string(ptr: number, max_len: number): string {
+        // const end = ptr + max_len;
+        let len = 0;
+        while (len < max_len && this.module.HEAPU8[ptr + len] !== 0) {
+            len++;
+        }
+        const bytes = this.module.HEAPU8.subarray(ptr, ptr + len);
+        return this.text_decoder.decode(bytes);
     }
 }

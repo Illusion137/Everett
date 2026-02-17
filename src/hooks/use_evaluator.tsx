@@ -21,6 +21,11 @@ declare global {
 
 let glob_eval: DimensionalEvaluator;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rcast<T>(a: any) {
+	return a as T;
+}
+
 export function useEvaluator(options: UseEvaluatorOptions = {}): UseEvaluatorReturn {
 	const { default_constants = {} } = options;
 
@@ -79,7 +84,7 @@ export function useEvaluator(options: UseEvaluatorOptions = {}): UseEvaluatorRet
 				if (!mounted) return;
 
 				// Initialize module
-				const wasm_module: WasmModule = typeof window.Module === "function" ? await window.Module() : await window.Module;
+				const wasm_module: WasmModule = typeof window.Module === "function" ? await rcast<{ Module: () => Promise<WasmModule> }>(window).Module() : await window.Module;
 
 				if (!mounted) return;
 
@@ -92,7 +97,7 @@ export function useEvaluator(options: UseEvaluatorOptions = {}): UseEvaluatorRet
 				});
 
 				// Store globally (survives StrictMode remounts)
-				window.Module = local_evaluator;
+				window.Module = rcast(local_evaluator);
 
 				if (mounted) {
 					set_state({

@@ -1,8 +1,10 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type RefObject } from "react";
 import { v4 } from "uuid";
 import { useEvaluator } from "../hooks/use_evaluator";
-import { array_empty, unit_to_latex, type UnitDimension } from "../utils";
 import MathExpressionEditor, { type MathExpressionEditorHandle } from "./MathExpressionEditor";
+import type { FormulaResult } from "../dimension_wasm_interface";
+import { StaticMathField } from "react-mathquill";
+import { latex_unit_splitter } from "../utils";
 
 export interface MathExpressionListHandle {
 	force_evaluate: () => void;
@@ -12,23 +14,13 @@ interface Expression {
 	id: string;
 	latex: string;
 	unit_latex: string;
-	evaluated_result?: number | null;
-	evaluation_error?: string | null;
-	evalulated_unit_latex?: string;
-	forced_unit_latex?: string;
-}
-
-interface EvaluationResult {
-	id: string;
-	evaluated_result?: number;
-	evaluation_error?: string;
-	evalulated_unit_latex?: string;
-	forced_unit_latex?: string;
-	unit_latex?: string;
+	evaluation_error: string | null;
+	evaluation_result_latex_string: string;
 }
 
 const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props, ref) => {
-	const [expressions, set_expressions] = useState<Expression[]>(() => [{ id: v4(), latex: "", unit_latex: "" }]);
+	const [expressions, set_expressions] = useState<Expression[]>(() => [{ id: v4(), latex: "", unit_latex: "", evaluation_error: null, evaluation_result_latex_string: "" }]);
+	const [related_formulas, set_related_formulas] = useState<FormulaResult[]>(() => []);
 	const [focused_index, set_focused_index] = useState(0);
 	const [refresh_eval_trigger, set_refresh_eval_trigger] = useState(0);
 	const editor_refs = useRef<RefObject<MathExpressionEditorHandle>[]>([]);
@@ -41,7 +33,7 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 			c: ["2.99792458*10^8", "\\frac{\\m}{\\s}"],
 			m_e: ["9.1938*10^{-31}", "\\kg"],
 			m_p: ["1.67262*10^{-27}", "\\kg"],
-			N_A: ["6.022*10^{-23}", "\\mol^{-1}"],
+			N_A: ["6.022*10^{23}", "\\mol^{-1}"],
 		},
 	});
 
@@ -52,55 +44,52 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 	}));
 
 	const __evaluate__ = useCallback(
-		async (expr_list: Array<{ id: string; latex: string; unit_latex?: string }>): Promise<EvaluationResult[]> => {
+		async (expr_list: Array<{ id: string; latex: string; unit_latex?: string }>): Promise<Expression[]> => {
 			if (!evaluator) {
 				return expr_list.map((exp) => ({
-					id: exp.id,
+					...exp,
+					unit_latex: exp.unit_latex ?? "",
 					evaluation_error: "Evaluator not initialized",
+					evaluation_result_latex_string: "",
 				}));
 			}
 
 			try {
-				// Extract just the latex expressions for batch evaluation
 				const latex_expressions = expr_list.map((exp) => {
-					if (!exp.unit_latex) return exp.latex;
-					if (!exp.latex.includes("=")) return exp.latex;
-					const split = exp.latex.split("=");
-					if (split.length != 2) return exp.latex;
-					return `${split?.[0] ?? ""} = \\left(${split?.[1] ?? ""}\\right)\\cdot${exp.unit_latex ?? "1"}`;
+					if (exp.latex.match(/\?\s*=/)) {
+						return { value_expr: "? = " + latex_unit_splitter(exp.latex.replace(/\?\s*=/, "")), unit_expr: "" };
+					}
+					return { value_expr: exp.latex, unit_expr: exp.unit_latex ?? "" };
 				});
-
-				// console.log(latex_expressions);
-
 				// Evaluate all expressions in one batch
 				const eval_results = evaluator.eval_batch(latex_expressions);
+
+				set_related_formulas(evaluator.get_last_formula_results());
 				// Map results back to the original format with IDs
 				return expr_list.map((exp, index) => {
 					const result = eval_results[index];
 					if (result.success) {
 						return {
-							id: exp.id,
-							evaluated_result: result.value,
-							evaluation_error: undefined,
-							unit_latex: exp.unit_latex,
-							evalulated_unit_latex: array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitDimension),
-							forced_unit_latex: exp.unit_latex || array_empty(result.unit ?? []) ? "" : unit_to_latex(result.unit as UnitDimension),
+							...exp,
+							evaluation_error: null,
+							unit_latex: exp.unit_latex ?? "",
+							evaluation_result_latex_string: `${result.value_scientific ?? ""}${result.unit_latex}`,
 						};
 					} else {
 						return {
-							id: exp.id,
-							evaluated_result: undefined,
-							evaluation_error: result.error,
-							unit_latex: exp.unit_latex,
-							evalulated_unit_latex: "",
-							forced_unit_latex: "",
+							...exp,
+							evaluation_error: result.error ?? null,
+							unit_latex: exp.unit_latex ?? "",
+							evaluation_result_latex_string: "",
 						};
 					}
 				});
 			} catch (error) {
 				console.error("Batch evaluation failed:", error);
 				return expr_list.map((exp) => ({
-					id: exp.id,
+					...exp,
+					unit_latex: exp.unit_latex ?? "",
+					evaluation_result_latex_string: "",
 					evaluation_error: error instanceof Error ? error.message : "Unknown error",
 				}));
 			}
@@ -125,10 +114,8 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 					if (result) {
 						return {
 							...prev_exp,
-							evaluated_result: result.evaluated_result ?? 0,
 							evaluation_error: result.evaluation_error ?? null,
-							forced_unit_latex: result.forced_unit_latex ?? "",
-							evalulated_unit_latex: result.evalulated_unit_latex ?? "",
+							evaluation_result_latex_string: result.evaluation_result_latex_string ?? "",
 							unit_latex: result.unit_latex ?? prev_exp.latex,
 						};
 					}
@@ -184,11 +171,29 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 					id: new_id,
 					latex: "",
 					unit_latex: "",
+					evaluation_error: null,
+					evaluation_result_latex_string: "",
 				});
 				set_focused_index(index + 1);
 				return new_expressions;
 			}
 			return prev_expressions;
+		});
+	}, []);
+
+	const handle_formula_pressed = useCallback((latex: string) => {
+		set_expressions((prev_expressions) => {
+			const new_expressions = [...prev_expressions];
+			const new_id = v4(); // Simple ID generation
+			new_expressions.push({
+				id: new_id,
+				latex: latex,
+				unit_latex: "",
+				evaluation_error: null,
+				evaluation_result_latex_string: "",
+			});
+			set_focused_index(focused_index + 1);
+			return new_expressions;
 		});
 	}, []);
 
@@ -257,10 +262,8 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 					ref={editor_refs.current[index]}
 					initial_latex={exp.latex}
 					initial_unit_latex={exp.unit_latex}
-					forced_unit_latex={exp.forced_unit_latex}
 					is_focused={focused_index === index}
-					evaluated_result={exp.evaluated_result}
-					evalulated_unit_latex={exp.evalulated_unit_latex}
+					evaluation_result_latex_string={exp.evaluation_result_latex_string}
 					evaluation_error={exp.evaluation_error}
 					on_latex_change={(new_latex) => handle_latex_change(exp.id, new_latex)}
 					on_unit_latex_change={(new_unit_latex) => handle_unit_latex_change(exp.id, new_unit_latex)}
@@ -270,6 +273,20 @@ const MathExpressionList = forwardRef<MathExpressionListHandle, object>((_props,
 					on_backspace_pressed={() => handle_backspace_pressed(exp.id)}
 					on_click={() => handle_click(exp.id)}
 				/>
+			))}
+			<div className="h-10" />
+			{related_formulas.map((formula) => (
+				<div className="flex items-center w-full" key={formula.latex} onClick={() => handle_formula_pressed(formula.latex)}>
+					<div className="cursor-pointer flex-1 flex flex-row items-center transition-all duration-200 py-3 px-4 text-lg border border-purple-500 shadow-purple-300">
+						<div className="w-[30%] cursor-pointer">
+							<StaticMathField>{formula.latex}</StaticMathField>
+						</div>
+						<div>
+							<p>{formula.category}</p>
+							<p>{formula.name}</p>
+						</div>
+					</div>
+				</div>
 			))}
 		</div>
 	);

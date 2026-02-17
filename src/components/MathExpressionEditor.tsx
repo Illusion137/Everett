@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { EditableMathField, StaticMathField, type MathField } from "react-mathquill";
-import { latex_unit_splitter, number_to_maybe_scientific_notation } from "../utils";
+import { latex_unit_splitter } from "../utils";
 
 export interface MathExpressionEditorHandle {
 	focus: () => void;
@@ -11,10 +11,8 @@ interface MathExpressionEditorProps {
 	initial_latex: string;
 	initial_unit_latex?: string;
 	is_focused: boolean;
-	evaluated_result?: number | null;
 	evaluation_error?: string | null;
-	evalulated_unit_latex?: string;
-	forced_unit_latex?: string;
+	evaluation_result_latex_string?: string;
 	on_latex_change: (latex: string) => void;
 	on_unit_latex_change: (unit_latex: string) => void;
 	on_enter_pressed: () => void;
@@ -30,10 +28,8 @@ const MathExpressionEditor = forwardRef<MathExpressionEditorHandle, MathExpressi
 			initial_latex = "",
 			initial_unit_latex = "",
 			is_focused,
-			evaluated_result,
 			evaluation_error,
-			evalulated_unit_latex = "",
-			forced_unit_latex = "",
+			evaluation_result_latex_string = "",
 			on_latex_change,
 			on_unit_latex_change,
 			on_enter_pressed,
@@ -63,8 +59,6 @@ const MathExpressionEditor = forwardRef<MathExpressionEditorHandle, MathExpressi
 			on_backspace_pressed_ref.current = on_backspace_pressed;
 		}, [on_arrow_down, on_arrow_up, on_enter_pressed, on_backspace_pressed]);
 
-		const static_unit: boolean = !!forced_unit_latex;
-
 		useImperativeHandle(ref, () => ({
 			focus: () => {
 				math_field_ref.current?.focus();
@@ -86,7 +80,7 @@ const MathExpressionEditor = forwardRef<MathExpressionEditorHandle, MathExpressi
 			const relative_x = x - rect.left;
 			const ratio = relative_x / rect.width;
 			const left_percentage = 0.85;
-			if (ratio <= left_percentage || static_unit) math_field_ref.current?.focus();
+			if (ratio <= left_percentage) math_field_ref.current?.focus();
 			else unit_math_field_ref.current?.focus();
 		}
 
@@ -120,7 +114,7 @@ const MathExpressionEditor = forwardRef<MathExpressionEditorHandle, MathExpressi
 								autoOperatorNames: "ln sin cos tan sec csc cot log abs nCr nPr ceil fact floor round arcsin arccos arctan arcsec arccsc arccot val unit",
 								handlers: {
 									moveOutOf(direction) {
-										if (direction === 1 && !static_unit) unit_math_field_ref.current?.focus();
+										if (direction === 1) unit_math_field_ref.current?.focus();
 									},
 									enter() {
 										on_enter_pressed_ref.current?.();
@@ -160,60 +154,54 @@ const MathExpressionEditor = forwardRef<MathExpressionEditorHandle, MathExpressi
 									/>
 								</svg>
 								<span className="truncate" title={evaluation_error}>
-									Warning
+									{evaluation_error}
 								</span>
 							</div>
 						) : math_latex.trim() ? (
 							<span className="flex items-center gap-2">
 								<span className="text-sm text-gray-700">=</span>
-								<StaticMathField>{String(number_to_maybe_scientific_notation(evaluated_result ?? 0)) + (static_unit ? "" : "" + evalulated_unit_latex)}</StaticMathField>
+								<StaticMathField>{evaluation_result_latex_string}</StaticMathField>
 							</span>
 						) : null}
 					</div>
 
 					{/* Unit Editor (on the far right) */}
 					<div className="ml-4 flex-shrink-0">
-						{static_unit ? (
-							<div className="text-gray-500">
-								<StaticMathField>{forced_unit_latex}</StaticMathField>
-							</div>
-						) : (
-							<div>
-								<EditableMathField
-									className="mathquill-unit-field"
-									mathquillDidMount={(mathField) => {
-										unit_math_field_ref.current = mathField;
-									}}
-									config={{
-										spaceBehavesLikeTab: true,
-										autoCommands: "mu",
-										handlers: {
-											moveOutOf(direction) {
-												if (direction === -1) math_field_ref.current?.focus();
-											},
-											deleteOutOf() {
-												on_backspace_pressed_ref.current?.();
-											},
-											enter() {
-												on_enter_pressed_ref.current?.();
-											},
-											upOutOf() {
-												on_arrow_up_ref.current?.();
-											},
-											downOutOf() {
-												on_arrow_down_ref.current?.();
-											},
+						<div>
+							<EditableMathField
+								className="mathquill-unit-field"
+								mathquillDidMount={(mathField) => {
+									unit_math_field_ref.current = mathField;
+								}}
+								config={{
+									spaceBehavesLikeTab: true,
+									autoCommands: "mu",
+									handlers: {
+										moveOutOf(direction) {
+											if (direction === -1) math_field_ref.current?.focus();
 										},
-									}}
-									latex={unit_latex}
-									onChange={(mathField) => {
-										const new_unit_latex = mathField?.latex() ?? "";
-										set_unit_latex(new_unit_latex);
-										on_unit_latex_change(latex_unit_splitter(new_unit_latex));
-									}}
-								/>
-							</div>
-						)}
+										deleteOutOf() {
+											on_backspace_pressed_ref.current?.();
+										},
+										enter() {
+											on_enter_pressed_ref.current?.();
+										},
+										upOutOf() {
+											on_arrow_up_ref.current?.();
+										},
+										downOutOf() {
+											on_arrow_down_ref.current?.();
+										},
+									},
+								}}
+								latex={unit_latex}
+								onChange={(mathField) => {
+									const new_unit_latex = mathField?.latex() ?? "";
+									set_unit_latex(new_unit_latex);
+									on_unit_latex_change(latex_unit_splitter(new_unit_latex));
+								}}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>
