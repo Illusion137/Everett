@@ -1,8 +1,8 @@
 import { addStyles } from "react-mathquill";
 import Split from "react-split";
 import "./App.css";
-import DiptychV2 from "./components/DiptychV2";
 import MathExpressionList from "./components/MathExpressionList";
+import Diptych from "./components/Diptych";
 
 addStyles();
 
@@ -26,7 +26,7 @@ function App() {
 					<MathExpressionList />
 				</div>
 				<div className="diptych-pane h-full overflow-auto">
-					<DiptychV2 file_path="/Users/illusion/dev/Everett/NOTES.md" />
+					<Diptych />
 				</div>
 			</Split>
 		</div>

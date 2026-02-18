@@ -1188,6 +1188,80 @@ Semi conductors:
 
 Superconductivity:
 
+## Resistance and Ohm's Law
+
+$R = \frac{\rho L}{A} = \frac{V}{I}$
+
+R = Resistance of a conductor
+
+$\rho$ = Resisitvity of conductor material
+
+L = Length of conductor
+
+A = Cross section area
+
+Resistivity != Resistance
+
+$\rho = E/J$
+
+Resistance R is a property of an object.
+
+Resistivity is a property of a material.
+
+$\rho \rightarrow E = \rho J$
+
+### Resistors
+
+$R_{esistance} = (1st color)(2nd color) * 10^{3rd color} \pm 4th color$
+
+$D_{igit1} D_{igit2} D_{igit3} N_{um0} T_{olerance}$
+
+$slope = \frac{y}{x} = \frac{I}{V} = \frac{1}{R}$
+
+Resistance is a constant; Const temp; Is Ohmic
+
+### Electromotive Force and Circuits
+
+Just as water fountains require pump; electric circuits require a source of electromotor force.
+
+An influence that makes current flow from lower to higher potential is called electromotive force (EMF).
+
+EMF is not a force, an energy per unit charge quantity.
+
+The SI unit of $EMF = V = \frac{J}{C}$ The same as potential.
+
+$E = \frac{dW}{dq} \rightarrow W_n = qE$
+
+For and "ideal" source of emf: $V_{ab} = E$
+
+Inside the wire: $V_{ab} = IR = E$
+
+Potenial rise of E
+
+Potential drop of $V_{ab} = IR$
+
+### Internal Resistance
+
+EMF contains some internal resistance r.
+
+$V_{ab} = E - Ir$
+
+$V\_{ab} = $Terminal voltage
+
+$E = $EMF of source
+
+$r =$ Internal resistance of source
+
+### Potential Changes
+
+$\Delta U_{net} = 0$
+
+Potential rises:$\Delta V = +E$
+
+Potential drops:$\Delta V = -Ir  - IR$
+
+Potential loops$E - Ir - Ir = 0$
+
 ## Key Formulas Summary
 
 ### Electric Force and Field

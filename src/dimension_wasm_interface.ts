@@ -17,10 +17,18 @@ export interface Expression {
     unit_expr: string;
 }
 
+export interface FormulaVariable {
+    name: string;
+    units: string;
+    description: string;
+    is_constant: boolean;
+}
+
 export interface FormulaResult {
     name: string;
     latex: string;
     category: string;
+    variables: FormulaVariable[];
 }
 
 export interface WasmModule {
@@ -255,24 +263,7 @@ export class DimensionalEvaluator {
             return [];
         }
 
-        // struct dv_formula_list layout:
-        //  0: char** names
-        //  4: char** latexes
-        //  8: char** categories
-        // 12: int count
-        const names_ptr = this.module.HEAPU32[list_ptr / 4];
-        const latexes_ptr = this.module.HEAPU32[list_ptr / 4 + 1];
-        const categories_ptr = this.module.HEAPU32[list_ptr / 4 + 2];
-        const count = this.module.HEAP32[list_ptr / 4 + 3];
-
-        const formulas: FormulaResult[] = [];
-        for (let i = 0; i < count; i++) {
-            const name = this._read_string(this.module.HEAPU32[names_ptr / 4 + i]);
-            const latex = this._read_string(this.module.HEAPU32[latexes_ptr / 4 + i]);
-            const category = this._read_string(this.module.HEAPU32[categories_ptr / 4 + i]);
-            formulas.push({ name, latex, category });
-        }
-
+        const formulas = this._read_formula_list(list_ptr);
         this.module._dv_free_formula_list(list_ptr);
 
         return formulas;
@@ -291,20 +282,7 @@ export class DimensionalEvaluator {
             return [];
         }
 
-        // Same layout as dv_formula_list
-        const names_ptr = this.module.HEAPU32[list_ptr / 4];
-        const latexes_ptr = this.module.HEAPU32[list_ptr / 4 + 1];
-        const categories_ptr = this.module.HEAPU32[list_ptr / 4 + 2];
-        const count = this.module.HEAP32[list_ptr / 4 + 3];
-
-        const formulas: FormulaResult[] = [];
-        for (let i = 0; i < count; i++) {
-            const name = this._read_string(this.module.HEAPU32[names_ptr / 4 + i]);
-            const latex = this._read_string(this.module.HEAPU32[latexes_ptr / 4 + i]);
-            const category = this._read_string(this.module.HEAPU32[categories_ptr / 4 + i]);
-            formulas.push({ name, latex, category });
-        }
-
+        const formulas = this._read_formula_list(list_ptr);
         this.module._dv_free_formula_list(list_ptr);
 
         return formulas;
@@ -413,6 +391,32 @@ export class DimensionalEvaluator {
     // ========================================================================
     // Private Helper Methods
     // ========================================================================
+
+    private _read_formula_list(list_ptr: number): FormulaResult[] {
+        // struct dv_formula_list layout:
+        //  0: char** names
+        //  4: char** latexes
+        //  8: char** categories
+        // 12: char** variables_json
+        // 16: int count
+        const names_ptr = this.module.HEAPU32[list_ptr / 4];
+        const latexes_ptr = this.module.HEAPU32[list_ptr / 4 + 1];
+        const categories_ptr = this.module.HEAPU32[list_ptr / 4 + 2];
+        const variables_json_ptr = this.module.HEAPU32[list_ptr / 4 + 3];
+        const count = this.module.HEAP32[list_ptr / 4 + 4];
+
+        const formulas: FormulaResult[] = [];
+        for (let i = 0; i < count; i++) {
+            const name = this._read_string(this.module.HEAPU32[names_ptr / 4 + i]);
+            const latex = this._read_string(this.module.HEAPU32[latexes_ptr / 4 + i]);
+            const category = this._read_string(this.module.HEAPU32[categories_ptr / 4 + i]);
+            const vars_json_str = this._read_string(this.module.HEAPU32[variables_json_ptr / 4 + i]);
+            const variables: FormulaVariable[] = JSON.parse(vars_json_str);
+            formulas.push({ name, latex, category, variables });
+        }
+
+        return formulas;
+    }
 
     private _check_initialized(): void {
         if (this.is_destroyed) {
